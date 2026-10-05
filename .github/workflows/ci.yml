@@ -1,0 +1,138 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      parity:
+        description: Run the JS parity suite against Scratchpiler
+        type: boolean
+        default: false
+      scratchpiler_ref:
+        description: Scratchpiler branch, tag or commit to compare against
+        default: main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: Format and clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --check
+      - run: cargo clippy --release --all-targets --locked -- -D warnings
+
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04, test: true }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest, test: true }
+          - { target: aarch64-pc-windows-msvc, os: windows-latest, test: false }
+          - { target: aarch64-apple-darwin, os: macos-latest, test: true }
+          - { target: x86_64-apple-darwin, os: macos-latest, test: false }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Test
+        if: matrix.test
+        run: cargo test --release --locked --target ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Package
+        shell: bash
+        run: |
+          cd target/${{ matrix.target }}/release
+          if [[ "${{ matrix.target }}" == *windows* ]]; then
+            asset=scratchpilerd-${{ matrix.target }}.zip
+            7z a -tzip "$GITHUB_WORKSPACE/$asset" scratchpilerd.exe
+          else
+            asset=scratchpilerd-${{ matrix.target }}.tar.gz
+            tar -czf "$GITHUB_WORKSPACE/$asset" scratchpilerd
+          fi
+          cd "$GITHUB_WORKSPACE"
+          if command -v sha256sum >/dev/null; then sha256sum "$asset" > "$asset.sha256"; else shasum -a 256 "$asset" > "$asset.sha256"; fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scratchpilerd-${{ matrix.target }}
+          path: |
+            scratchpilerd-${{ matrix.target }}.*
+          if-no-files-found: error
+
+  parity:
+    name: Parity with the JS analyzer
+    if: github.event_name == 'workflow_dispatch' && inputs.parity || vars.PARITY == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: scratchpilerd
+      - uses: actions/checkout@v4
+        with:
+          repository: Scratchpiler/scratchpiler
+          ref: ${{ inputs.scratchpiler_ref || 'main' }}
+          path: scratchpiler
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: scratchpilerd
+      - name: Install esbuild for the Scratchpiler bundle
+        working-directory: scratchpiler
+        run: npm install --no-save --no-package-lock esbuild
+      - name: Generated tables are in sync
+        working-directory: scratchpilerd
+        run: node tools/extract.mjs && git diff --exit-code src/data/generated.rs
+      - name: Build
+        working-directory: scratchpilerd
+        run: cargo build --release --locked
+      - name: Parser, diagnostics, project analysis and editor features match
+        working-directory: scratchpilerd
+        run: |
+          node tools/diff.mjs ast 400
+          node tools/diff.mjs diag 400
+          node tools/diff-project.mjs 400
+          node --max-old-space-size=6000 tools/diff-editor.mjs 60
+
+  release:
+    name: Release
+    needs: [lint, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

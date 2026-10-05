@@ -1,0 +1,40 @@
+[package]
+name = "scratchpilerd"
+version = "0.1.0"
+edition = "2024"
+description = "Language server for Scratchpiler (.sdsl)"
+license = "ISC"
+publish = false
+
+[dependencies]
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+xxhash-rust = { version = "0.8", features = ["xxh3"] }
+miniz_oxide = "0.8"
+bincode = "1.3"
+rustc-hash = "2"
+indexmap = { version = "2", features = ["serde"] }
+rayon = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_System_Threading", "Win32_Foundation"] }
+
+[dev-dependencies]
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+debug = false
+
+[profile.bench]
+inherits = "release"
+strip = false
+debug = 1
