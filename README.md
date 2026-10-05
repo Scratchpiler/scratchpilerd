@@ -82,5 +82,9 @@ The `tools/` scripts expect a `../scratchpiler` checkout with esbuild installed.
 `src/data/generated.rs` from language.js.
 
 CI (`.github/workflows/ci.yml`) runs fmt and clippy, then tests and builds for x86_64 Linux, Windows
-x86_64 and ARM64, and macOS ARM64 and Intel. Tagging `v*` publishes the release archives that the Zed
-extension downloads. The JS parity job runs on demand.
+x86_64 and ARM64, and macOS ARM64 and Intel. After fmt, clippy and all platform builds pass, pushes
+to `main` (or manual CI runs on `main`) publish `v<package.version>` from `Cargo.toml` with the release
+archives and SHA-256 checksums that the Zed extension downloads. Published versions are skipped;
+bump the package version to release an update. Tagging `v*` also publishes that tag, with tags
+containing `-` marked as prereleases. The Zed extension downloads the latest stable release.
+The JS parity job runs on demand.

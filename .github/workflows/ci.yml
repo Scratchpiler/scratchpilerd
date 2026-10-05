@@ -123,16 +123,58 @@ jobs:
   release:
     name: Release
     needs: [lint, build]
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+      - name: Select release
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import tomllib
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          with open("Cargo.toml", "rb") as manifest:
+              version = tomllib.load(manifest)["package"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"] if os.environ["GITHUB_REF_TYPE"] == "tag" else f"v{version}"
+          url = f'{os.environ["GITHUB_API_URL"]}/repos/{os.environ["GITHUB_REPOSITORY"]}/releases/tags/{urllib.parse.quote(tag, safe="")}'
+          request = urllib.request.Request(url, headers={
+              "Authorization": f'Bearer {os.environ["GH_TOKEN"]}',
+              "Accept": "application/vnd.github+json",
+          })
+          try:
+              with urllib.request.urlopen(request) as response:
+                  publish = json.load(response)["draft"]
+          except urllib.error.HTTPError as error:
+              if error.code != 404:
+                  raise
+              publish = True
+          prerelease = "-" in tag
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"tag={tag}\npublish={str(publish).lower()}\nprerelease={str(prerelease).lower()}\n")
+          print(f'{"Publishing" if publish else "Already published:"} {tag}')
+          PY
       - uses: actions/download-artifact@v4
+        if: steps.release.outputs.publish == 'true'
         with:
+          pattern: scratchpilerd-*
           path: dist
           merge-multiple: true
       - uses: softprops/action-gh-release@v2
+        if: steps.release.outputs.publish == 'true'
         with:
+          tag_name: ${{ steps.release.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          prerelease: ${{ steps.release.outputs.prerelease == 'true' }}
+          make_latest: ${{ steps.release.outputs.prerelease == 'true' && 'false' || 'true' }}
           files: dist/*
+          fail_on_unmatched_files: true
           generate_release_notes: true
