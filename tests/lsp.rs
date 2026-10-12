@@ -354,3 +354,66 @@ fn symlinked_project_paths_resolve_to_the_same_files() {
     shutdown(&mut client);
     assert!(child.wait().unwrap().success());
 }
+
+const RANKED: &str = "on flag {\n    if [score] > 1 {\n        say(1)\n    }\n    \n    set [score] to \n    forever {\n        \n    }\n}\n\n";
+
+fn ranked_labels(client: &mut Client, file: &Path, line: u32, character: u32) -> Vec<String> {
+    let reply =
+        client.request("textDocument/completion", json!({ "textDocument": { "uri": uri(file) }, "position": { "line": line, "character": character } }));
+    let mut items: Vec<(String, String)> = reply["result"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| (i["sortText"].as_str().unwrap_or("").to_string(), i["label"].as_str().unwrap().to_string()))
+        .collect();
+    items.sort();
+    items.into_iter().map(|(_, label)| label).collect()
+}
+
+fn open_ranked(client: &mut Client, dir: &Path) -> PathBuf {
+    let player = dir.join("Player.sdsl");
+    client.notify("textDocument/didOpen", json!({ "textDocument": { "uri": uri(&player), "languageId": "scratchpiler", "version": 1, "text": RANKED } }));
+    client.diagnostics_for("Player.sdsl");
+    player
+}
+
+#[test]
+fn completion_is_ranked_by_position() {
+    let dir = project();
+    let (mut child, mut client) = stdio_server(&["--project", dir.to_str().unwrap()]);
+    client.initialize(Value::Null);
+    let player = open_ranked(&mut client, &dir);
+
+    let top = ranked_labels(&mut client, &player, 10, 0);
+    assert_eq!(top[0], "on flag {}", "{:?}", &top[..8]);
+    assert!(top.iter().position(|l| l == "move()") > top.iter().position(|l| l == "define name(params) {}"));
+
+    let after_if = ranked_labels(&mut client, &player, 4, 4);
+    assert_eq!(&after_if[..2], ["else {}", "else if {}"]);
+    assert!(after_if.iter().position(|l| l == "move()") < after_if.iter().position(|l| l == "on flag {}"));
+
+    let value = ranked_labels(&mut client, &player, 5, 19);
+    assert_eq!(value[0], "[score]", "{:?}", &value[..8]);
+    assert!(value.iter().position(|l| l == "xPos") < value.iter().position(|l| l == "move()"));
+
+    let in_loop = ranked_labels(&mut client, &player, 7, 8);
+    assert!(in_loop.iter().position(|l| l == "break") < in_loop.iter().position(|l| l == "move()"));
+    assert!(!in_loop[..2].contains(&"else {}".to_string()));
+
+    shutdown(&mut client);
+    assert!(child.wait().unwrap().success());
+}
+
+#[test]
+fn ranking_can_be_turned_off() {
+    let dir = project();
+    let (mut child, mut client) = stdio_server(&["--project", dir.to_str().unwrap()]);
+    client.initialize(json!({ "settings": { "completionRanking": false } }));
+    let player = open_ranked(&mut client, &dir);
+    let reply = client.request("textDocument/completion", json!({ "textDocument": { "uri": uri(&player) }, "position": { "line": 4, "character": 4 } }));
+    let items = reply["result"]["items"].as_array().unwrap();
+    assert!(items.iter().all(|i| i["label"] != "else {}"));
+    assert!(items.iter().any(|i| i["label"] == "on flag {}" && i.get("sortText").is_none()));
+    shutdown(&mut client);
+    assert!(child.wait().unwrap().success());
+}

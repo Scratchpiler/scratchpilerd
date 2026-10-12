@@ -20,6 +20,7 @@ pub struct Settings {
     pub semantic_tokens: SemanticTokenMode,
     pub inlay_hints: bool,
     pub completion_follow_ups: bool,
+    pub completion_ranking: bool,
     pub cache: bool,
 }
 
@@ -32,7 +33,14 @@ pub enum SemanticTokenMode {
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { lint: LintSettings::default(), semantic_tokens: SemanticTokenMode::Full, inlay_hints: true, completion_follow_ups: true, cache: true }
+        Settings {
+            lint: LintSettings::default(),
+            semantic_tokens: SemanticTokenMode::Full,
+            inlay_hints: true,
+            completion_follow_ups: true,
+            completion_ranking: true,
+            cache: true,
+        }
     }
 }
 

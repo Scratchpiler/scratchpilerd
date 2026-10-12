@@ -317,22 +317,22 @@ fn kind_number(kind: &str) -> u32 {
 }
 
 #[derive(Default)]
-struct Item {
-    label: String,
-    kind: &'static str,
-    detail: Option<String>,
-    documentation: Option<String>,
-    insert_text: String,
-    snippet: bool,
-    sort_text: Option<String>,
-    filter_text: Option<String>,
-    command: Option<&'static str>,
-    range: (u32, u32),
-    statik: Option<&'static data::StaticItem>,
+pub(super) struct Item {
+    pub(super) label: String,
+    pub(super) kind: &'static str,
+    pub(super) detail: Option<String>,
+    pub(super) documentation: Option<String>,
+    pub(super) insert_text: String,
+    pub(super) snippet: bool,
+    pub(super) sort_text: Option<String>,
+    pub(super) filter_text: Option<String>,
+    pub(super) command: Option<&'static str>,
+    pub(super) range: (u32, u32),
+    pub(super) statik: Option<&'static data::StaticItem>,
 }
 
 impl Item {
-    fn label(&self) -> &str {
+    pub(super) fn label(&self) -> &str {
         self.statik.map_or(&self.label, |s| s.label)
     }
 
@@ -340,7 +340,7 @@ impl Item {
         self.statik.map_or(&self.insert_text, |s| s.insert_text)
     }
 
-    fn detail(&self) -> Option<&str> {
+    pub(super) fn detail(&self) -> Option<&str> {
         self.statik.map(|s| s.detail).or(self.detail.as_deref())
     }
 
@@ -1036,7 +1036,10 @@ pub fn completion(snapshot: &Snapshot, params: &Value) -> Result<String, (i64, S
     let slot = slot_of(snapshot, pos.uri)?;
     let trigger = params["context"]["triggerCharacter"].as_str();
     let follow_ups = snapshot.settings.completion_follow_ups;
-    let list = items(snapshot, slot, pos.line, pos.col, trigger);
+    let mut list = items(snapshot, slot, pos.line, pos.col, trigger);
+    if snapshot.settings.completion_ranking {
+        super::ranking::rank(&mut list, slot, pos.line, pos.col);
+    }
     let mut out = String::with_capacity(list.len() * 256);
     out.push_str("{\"isIncomplete\":false,\"items\":[");
     for (i, item) in list.iter().enumerate() {

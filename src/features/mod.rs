@@ -4,6 +4,7 @@ pub mod hover;
 pub mod lexical;
 pub mod navigation;
 pub mod outline;
+pub mod ranking;
 pub mod signature;
 pub mod tokens;
 

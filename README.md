@@ -42,7 +42,32 @@ under `scratchpiler`:
 - `inlayHints`.
 - `semanticTokens`: `full` or `semantic`.
 - `completionFollowUps`.
+- `completionRanking` (default on): see [Completion ranking](#completion-ranking).
 - `cache`.
+
+## Completion ranking
+
+The candidate list is the Monaco provider's, diffed against the JS. On top of it, the server sets
+`sortText` from where the cursor is, so the useful entries come first:
+
+- **Top level**: `on …`, `define`, `scratchroutine`, `struct`, `enum` and `#include` first; plain
+  statements are orphans and sink. `#include` leads while the file has no code yet. In header files hats
+  sink and declarations lead.
+- **Statement position** (inside a block, at the start of a statement): commands and control flow
+  first. After a block that closes an `if`, `else {}` and `else if {}` lead. `break`/`continue` lead in
+  loops, `case`/`default` directly in a `match`, `return value` in a `returns` block, `checkCancel()` in a
+  scratchroutine.
+- **Expression position** (after `set … to`, `if`, an operator, or inside call parentheses): parameters and
+  loop variables, then variables the file uses, then enum constants and values. The entries that fit the
+  slot rise: comparisons, `touching`, `key` and `not` after `if`/`while`/`until`; numeric reporters and
+  math inside `move(`, `setX(`, `repeat`; text reporters inside `say(`; list variables for a list
+  parameter such as the second argument of `listAdd`.
+- **Usage**: within a tier, commands, custom blocks and variables the current file uses more often rank
+  higher.
+
+Nothing is removed, only reordered, so a wrong guess costs a keystroke and not a missing entry. Set
+`completionRanking` to `false` for the unranked list. `scratchpilerd debug editor` and `tools/diff-editor.mjs`
+always use the unranked list, so the JS parity stays exact.
 
 ## Threads and priorities
 
